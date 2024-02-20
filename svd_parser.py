@@ -61,12 +61,12 @@ def process_registers(tree: Et.Element):
         for branch in tree:
             name = branch.find('name').text.upper()
             description = process_description(branch.find('description').text.capitalize())
-            offset = f'0x{int(branch.find('addressOffset').text, 16):X}'
+            offset = '0' if int(branch.find('addressOffset').text, 16) == 0 else f'0x{int(branch.find('addressOffset').text, 16):02X}'
             width = int(branch.find('size').text, 16)
-            array = 0 if branch.attrib == {} else int(branch.attrib['array'])
+            length = 0 if branch.attrib == {} else int(branch.attrib['array'])
             access = 'RW' if branch.find('access') is None or branch.find('access').text == 'read-write' else 'RO' if branch.find('access').text == "read-only" else 'WO'
             fields = process_fields(name, branch.find('fields'))
-            registers.append({ 'name': name, 'description': description, 'offset': offset, 'width': width, 'array': array, 'access': access, 'fields': fields })
+            registers.append({ 'name': name, 'description': description, 'offset': offset, 'width': width, 'length': length, 'access': access, 'fields': fields })
     return registers
 
 
@@ -98,7 +98,7 @@ def create_base_files(namespace: str, peripherals: list):
             if i == 0:
                 addresses += f'auto {begin},\n'
             else:
-                addresses += f'auto {register['name'].lower()}_address = {begin} + 0x{int(register['offset'], 16):04X},\n'
+                addresses += f'auto {register['name'].lower()}_address = {begin} + 0x{int(register['offset'], 16):02X},\n'
 
         # Generate register name variables
         register_names = generate_names(peripheral['name'], peripheral['registers'])
@@ -106,19 +106,19 @@ def create_base_files(namespace: str, peripherals: list):
         # Generate types for arrays of registers
         array_types = ''
         for register in registers:
-            if register['array']:
-                array_types += f'using {register['name']}_t = RegisterArray<{register['name'].lower()}_address, {register['width']}, {register['array']}, {register['access']}, Target, STM32F4xxx, {register['name'].lower()}_name>;\t// {register['description']}\n'
+            if register['length']:
+                array_types += f'using {register['name']}_t = RegisterArray<{register['name'].lower()}_address, {register['width']}, {register['length']}, {register['access']}, Target, STM32F4xxx, {register['name'].lower()}_name>;\t// {register['description']}\n'
 
         # Generate static array registers
         arrays = ''
         for register in registers:
-            if register['array']:
+            if register['length']:
                 arrays += f'static inline {register['name']}_t {register['name']};\t// {register['description']}\n'
 
         # Generate register packs
         packs = ''
         for register in registers:
-            if not register['array']:
+            if not register['length']:
                 packs += f'\t\ttemplate<typename... T> using {register['name']}Pack = RegisterPack<{register['name']}, T...>;\t// {register['description']} pack\n'
 
         # Generate registers
@@ -126,9 +126,9 @@ def create_base_files(namespace: str, peripherals: list):
         for register in registers:
 
             # If empty fields or width of register = width of field
-            if register['array'] == 0:
+            if register['length'] == 0:
                 if len(register['fields']) == 0 or register['width'] == register['fields'][0]['width']:
-                    registers_str += f'using {register['name']} = RegisterBase<{register['name'].lower()}_address, {register['width']}, {register['array']}, {register['access']}, Target, STM32F4xxx, {register['name'].lower()}_name>;\t// {register['description']}\n'
+                    registers_str += f'using {register['name']} = RegisterBase<{register['name'].lower()}_address, {register['width']}, {register['length']}, {register['access']}, Target, STM32F4xxx, {register['name'].lower()}_name>;\t// {register['description']}\n'
 
                 else:
                     # Generate fields name
@@ -141,7 +141,7 @@ def create_base_files(namespace: str, peripherals: list):
 
                     registers_str += (
                         f'// {register['description']}\n'
-                        f'class {register['name']}: public RegisterBase<{register['name'].lower()}_address, {register['width']}, {register['array']}, {register['access']}, Target, STM32F4xxx, {register['name'].lower()}_name>\n'
+                        f'class {register['name']}: public RegisterBase<{register['name'].lower()}_address, {register['width']}, {register['length']}, {register['access']}, Target, STM32F4xxx, {register['name'].lower()}_name>\n'
                         f'{{\n'
                         f'{names}\n'
                         f'public:\n'
@@ -281,22 +281,22 @@ def create_peripheral_files(namespace: str, peripherals: list):
         name = peripheral['name']
 
         if peripheral.get('address'):
-            registers += f'using {name} = {name}Base<Target, {name}_ADDRESS>;\n'
+            registers += f'\tusing Registers = {name}Base<Target, {name}_ADDRESS>;\n'
         else:
             for element in peripheral['derived']:
                 current_name = element['name']
-                registers += f'using {current_name} = {name}Base<Target, {current_name}_ADDRESS>;\n'
+                registers += f'\tusing Registers{current_name} = {name}Base<Target, {current_name}_ADDRESS>;\n'
 
         peripheral_list = ''
         common_name = peripheral['name']
         driver_namespace = f'{common_name.lower()}'
 
         if peripheral.get('address'):
-            peripheral_list += f'\tstruct {common_name}: {driver_namespace}::{common_name} {{ using Driver = {driver_namespace}::Driver<{common_name.lower()}::{common_name}>; }};\n'
+            peripheral_list += f'\tstruct {common_name}: {driver_namespace}::Registers {{ using Driver = {driver_namespace}::Driver<{common_name.lower()}::Registers>; }};\n'
 
         else:
             for element in peripheral['derived']:
-                peripheral_list += f'\tstruct {element['name']}: {driver_namespace}::{element['name']} {{ using Driver = {driver_namespace}::Driver<{driver_namespace}::{element['name']}>; }};\n'
+                peripheral_list += f'\tstruct {element['name']}: {driver_namespace}::Registers{element['name']} {{ using Driver = {driver_namespace}::Driver<{driver_namespace}::Registers{element['name']}>; }};\n'
 
         text = str(
             f'#pragma once\n\n'
@@ -310,7 +310,9 @@ def create_peripheral_files(namespace: str, peripherals: list):
             f'}}\n\n'
             f'namespace {namespace}\n'
             f'{{\n'
+            f'\t// clang-format off\n'
             f'{peripheral_list[:-1]}\n'
+            f'\t// clang-format on\n'
             f'}}\n'
         )
 
@@ -318,7 +320,7 @@ def create_peripheral_files(namespace: str, peripherals: list):
             header.write(text)
         headers += f'#include "{path.stem}/{name}.h"\n'
 
-    subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', f'{path}/*.h'])
+    #subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', f'{path}/*.h'])
 
     with open(path.parent / 'registers.h', 'w') as common:
         common.write(headers)
@@ -336,7 +338,7 @@ def create_addresses_file(peripherals: list):
         registers = ''
         for register in peripheral['registers']:
             width = 'uint8_t' if register['width'] == 8 else 'uint16_t' if register['width'] == 16 else 'uint32_t'
-            registers += f'static inline {width} {register['name']}[{register['array']}] = {{0}};\n' if register['array'] else f'static inline {width} {register['name']} = 0;\n'
+            registers += f'static inline {width} {register['name']}[{register['length']}] = {{0}};\n' if register['length'] else f'static inline {width} {register['name']} = 0;\n'
 
         if peripheral.get('address'):
             structs += (
@@ -360,14 +362,14 @@ def create_addresses_file(peripherals: list):
         names = ''
         if peripheral.get('address'):
             for register in peripheral['registers']:
-                names += f'{peripheral['name']}::{register['name']}, ' if register['array'] else f'&{peripheral['name']}::{register['name']}, '
+                names += f'{peripheral['name']}::{register['name']}, ' if register['length'] else f'&{peripheral['name']}::{register['name']}, '
             storage_address_list += f'#define {peripheral['name']}_ADDRESS {names[:-2]}\n'
 
         else:
             for element in peripheral['derived']:
                 names = ''
                 for register in peripheral['registers']:
-                    names += f'{element['name']}::{register['name']}, ' if register['array'] else f'&{element['name']}::{register['name']}, '
+                    names += f'{element['name']}::{register['name']}, ' if register['length'] else f'&{element['name']}::{register['name']}, '
                 storage_address_list += f'#define {element['name']}_ADDRESS {names[:-2]}\n'
 
     # Generate default address list
@@ -439,12 +441,7 @@ def get_peripherals(tree: Et.Element, includes: list):
 
         if len(peripheral['derived']) == 1:
             address = peripheral['derived'][0]['address']
-            if (
-                    peripheral['group'] == 'TIM' or
-                    peripheral['group'] == 'ETHERNET' or
-                    peripheral['group'] == 'USB_OTG_FS' or
-                    peripheral['group'] == 'USB_OTG_HS'
-            ):
+            if peripheral['group'] == 'TIM' or peripheral['group'] == 'ETHERNET' or peripheral['group'] == 'USB_OTG_FS' or peripheral['group'] == 'USB_OTG_HS' :
                 peripheral['group'] = peripheral['derived'][0]['name']
 
             new_peripherals.append(
@@ -473,57 +470,39 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--include', '-i', nargs='+', help='list of peripherals to include')
-    #parser.add_argument('--json', '-j', help='skip svd, process only json', nargs='?', const='')
-    parser.add_argument('--svd', '-s', help='svd to json', nargs='?', const='')
-    parser.add_argument('--json', '-j', help='json to files', nargs='?', const='')
     parser.add_argument('--base', '-b', help='generate base files', nargs='?', const='')
     parser.add_argument('--fields', '-f', help='generate field files', nargs='?', const='')
     parser.add_argument('--drivers', '-d', help='generate driver files', nargs='?', const='')
+    parser.add_argument('--source', '-s', help='source file', nargs='?', const='')
 
     args = parser.parse_args()
     includes = args.include
-    source1 = args.svd
-    source2 = args.json
-    source = 'svd' if source1 == '' and not source2 else 'json' if not source1 and source2 == '' else None
     base = True if args.base == '' else False
     fields = True if args.fields == '' else False
     drivers = True if args.drivers == '' else False
+    source = Path(args.source)
 
     current = Path('.')
     common_namespace = 'mcu'
+    peripherals = []
 
-    if source == 'svd':
-        files = list(current.glob('*.svd'))
-        root = None
-        for file in files:
-            tree = Et.parse(file.name)
-            root = tree.getroot()
-            if root is None:
-                exit(0)
+    if source.suffix == '.svd':
+        tree = Et.parse(source.name)
+        root = tree.getroot()
+        peripherals = get_peripherals(root.find('peripherals'), includes)
 
-            peripherals = get_peripherals(root.find('peripherals'), includes)
+        with open(f'{source.stem}.json', 'w') as output:
+            json.dump(peripherals, output, indent=4)
 
-            if len(peripherals):
-                with open(f'{file.stem}.json', 'w') as output:
-                    json.dump(peripherals, output, indent=4)
+    elif source.suffix == '.json':
+        with open(source, 'r') as file:
+            peripherals = json.load(file)
 
-            exit(0)
-
-    elif source == 'json':
-        files = list(current.glob('*.json'))
-        for file in files:
-            with open(f'{file.stem}.json', 'r') as f:
-                peripherals = json.load(f)
-
-            if len(peripherals):
-                if base:
-                    create_base_files(common_namespace, peripherals)
-
-                if fields:
-                    create_field_files(common_namespace, peripherals)
-
-                if drivers:
-                    create_driver_files(common_namespace, peripherals)
-
-                create_peripheral_files(common_namespace, peripherals)
-                create_addresses_file(peripherals)
+    if base:
+        create_base_files(common_namespace, peripherals)
+    if fields:
+        create_field_files(common_namespace, peripherals)
+    if drivers:
+        create_driver_files(common_namespace, peripherals)
+    create_peripheral_files(common_namespace, peripherals)
+    create_addresses_file(peripherals)
