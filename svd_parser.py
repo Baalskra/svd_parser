@@ -425,45 +425,25 @@ def get_peripherals(tree: Et.Element, includes: list):
 
         peripherals.append({'group': group, 'derived': [addresses], 'description': description, 'registers': registers})
 
-    new_peripherals = list()
-
+    temp = list()
     if includes:
         for include in includes:
             for peripheral in peripherals:
                 if include == peripheral['group']:
-                    new_peripherals.append(peripheral)
+                    temp.append(peripheral)
                     break
-        peripherals = new_peripherals.copy()
-
-    new_peripherals = list()
+        peripherals = temp.copy()
+        temp.clear()
 
     for peripheral in peripherals:
-
         if len(peripheral['derived']) == 1:
             address = peripheral['derived'][0]['address']
-            if peripheral['group'] == 'TIM' or peripheral['group'] == 'ETHERNET' or peripheral['group'] == 'USB_OTG_FS' or peripheral['group'] == 'USB_OTG_HS' :
-                peripheral['group'] = peripheral['derived'][0]['name']
-
-            new_peripherals.append(
-                {
-                    'name': peripheral['group'],
-                    'description': peripheral['description'],
-                    'address': address,
-                    'registers': peripheral['registers']
-                }
-            )
+            temp.append({'name': peripheral['group'], 'description': peripheral['description'], 'address': address, 'registers': peripheral['registers']})
         else:
-            new_addresses = sorted(peripheral['derived'], key=lambda item: item['address'])
-            new_peripherals.append(
-                {
-                    'name': peripheral['group'],
-                    'description': peripheral['description'],
-                    'derived': new_addresses,
-                    'registers': peripheral['registers']
-                }
-            )
+            derived = sorted(peripheral['derived'], key=lambda item: item['address'])
+            temp.append({'name': peripheral['group'],'description': peripheral['description'],'derived': derived,'registers': peripheral['registers']})
 
-    return new_peripherals
+    return temp
 
 
 if __name__ == '__main__':
@@ -474,6 +454,7 @@ if __name__ == '__main__':
     parser.add_argument('--fields', '-f', help='generate field files', nargs='?', const='')
     parser.add_argument('--drivers', '-d', help='generate driver files', nargs='?', const='')
     parser.add_argument('--source', '-s', help='source file', nargs='?', const='')
+    parser.add_argument('--json', '-j', help='svd to json', nargs='?', const='')
 
     args = parser.parse_args()
     includes = args.include
@@ -481,6 +462,7 @@ if __name__ == '__main__':
     fields = True if args.fields == '' else False
     drivers = True if args.drivers == '' else False
     source = Path(args.source)
+    need_json = True if args.json == '' else False
 
     current = Path('.')
     common_namespace = 'mcu'
@@ -491,8 +473,9 @@ if __name__ == '__main__':
         root = tree.getroot()
         peripherals = get_peripherals(root.find('peripherals'), includes)
 
-        with open(f'{source.stem}.json', 'w') as output:
-            json.dump(peripherals, output, indent=4)
+        if need_json:
+            with open(f'{source.stem}.json', 'w') as output:
+                json.dump(peripherals, output, indent=4)
 
     elif source.suffix == '.json':
         with open(source, 'r') as file:
