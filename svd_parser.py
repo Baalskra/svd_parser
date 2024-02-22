@@ -82,12 +82,13 @@ def generate_names(peripheral: str, elements: list):
     return '' if not len(elements) else text[:-1]
 
 
-def create_base_files(namespace: str, peripherals: list):
+def run_clang_format(file: Path):
+    subprocess.call(
+        ['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', str(file).replace('\\','/')])
 
-    # Setup and create directory for base files
-    path = Path('.').cwd() / 'Base'
-    path.mkdir(parents=True, exist_ok=True)
 
+def create_base_files(namespace: str, peripherals: list, config: dict):
+    Path(config['root']['base']).mkdir(parents=True, exist_ok=True)
     for peripheral in peripherals:
         registers = peripheral['registers']
 
@@ -154,13 +155,13 @@ def create_base_files(namespace: str, peripherals: list):
 
         text = (
             f'#pragma once\n\n'
-            f'#include "Common/RegisterBase.h"\n'
-            f'#include "Common/RegisterPack.h"\n'
-            f'#include "Common/RegisterArray.h"\n'
-            f'#include "Common/FieldBase.h"\n'
-            f'#include "Common/ValueBase.h"\n'
-            f'#include "Fields/{peripheral['name']}.h"\n'
-            f'#include "targets.h"\n'
+            f'#include "{config['base']['common']}/RegisterBase.h"\n'
+            f'#include "{config['base']['common']}/RegisterPack.h"\n'
+            f'#include "{config['base']['common']}/RegisterArray.h"\n'
+            f'#include "{config['base']['common']}/FieldBase.h"\n'
+            f'#include "{config['base']['common']}/ValueBase.h"\n'
+            f'#include "{config['base']['fields']}/{peripheral['name']}.h"\n'
+            f'#include "{config['base']['root']}/{config['targets']}"\n'
             f'namespace {namespace}::{peripheral['name'].lower()}\n'
             f'{{\n'
             f'// {peripheral['description']}\n'
@@ -179,18 +180,16 @@ def create_base_files(namespace: str, peripherals: list):
             f'}}\n'
         )
 
-        with open(path / f'{peripheral['name']}.h', 'w') as header:
+        path = Path('.').cwd()/f'{config['root']['base']}/{peripheral['name']}.h'
+        with open(path, 'w') as header:
             header.write(text)
 
-    subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', f'{path}/*.h'])
+    path = Path('.').cwd() / f'{config['root']['base']}/*.h'
+    run_clang_format(path)
 
 
-def create_field_files(namespace: str, peripherals: list):
-
-    # Create dir for files
-    path = Path('.').cwd() / 'Fields'
-    path.mkdir(parents=True, exist_ok=True)
-
+def create_field_files(namespace: str, peripherals: list, config: dict):
+    Path(config['root']['fields']).mkdir(parents=True, exist_ok=True)
     for peripheral in peripherals:
         # Generate fields structs
         fields = ''
@@ -226,29 +225,30 @@ def create_field_files(namespace: str, peripherals: list):
                         f'}};\n'
                     )
 
-        name = peripheral['name']
+
 
         text = (
             f'#pragma once\n\n'
-            f'#include "Common/FieldBase.h"\n'
-            f'#include "Common/ValueBase.h"\n'
+            f'#include "{config['fields']['common']}/FieldBase.h"\n'
+            f'#include "{config['fields']['common']}/ValueBase.h"\n'
             f'namespace {namespace}::{peripheral['name'].lower()}\n'
             f'{{\n'
             f'{fields}\n'
             f'}}\n'
         )
 
-        with open(path / f'{name}.h', 'w') as header:
+        path = Path('.').cwd() / f'{config['root']['fields']}/{peripheral['name']}.h'
+        with open(path, 'w') as header:
             header.write(text)
 
-    subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', f'{path}/*.h'])
+    path = Path('.').cwd() / f'{config['root']['fields']}/*.h'
+    run_clang_format(path)
 
 
-def create_driver_files(namespace: str, peripherals: list):
+def create_driver_files(namespace: str, peripherals: list, config: dict):
 
     # Create dir for files
-    path = Path('.').cwd() / 'Drivers'
-    path.mkdir(parents=True, exist_ok=True)
+    Path(config['root']['drivers']).mkdir(parents=True, exist_ok=True)
 
     for peripheral in peripherals:
         text = (
@@ -262,17 +262,17 @@ def create_driver_files(namespace: str, peripherals: list):
             f'}}\n'
         )
 
-        with open(path / f'{peripheral['name']}.h', 'w') as header:
+        path = Path('.').cwd() / f'{config['root']['drivers']}/{peripheral['name']}.h'
+        with open(path, 'w') as header:
             header.write(text)
 
-        subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', f'{path}/*.h'])
+    path = Path('.').cwd() / f'{config['root']['drivers']}/*.h'
+    run_clang_format(path)
 
 
-def create_peripheral_files(namespace: str, peripherals: list):
+def create_peripheral_files(namespace: str, peripherals: list, config: dict):
 
-    # Create dir for files
-    path = Path('.').cwd() / 'Registers'
-    path.mkdir(parents=True, exist_ok=True)
+    Path(config['root']['peripherals']).mkdir(parents=True, exist_ok=True)
 
     headers = f'#pragma once\n\n'
     for peripheral in peripherals:
@@ -300,10 +300,10 @@ def create_peripheral_files(namespace: str, peripherals: list):
 
         text = str(
             f'#pragma once\n\n'
-            f'#include "addresses.h"\n'
-            f'#include "targets.h"\n'
-            f'#include "Base/{name}.h"\n'
-            f'#include "Drivers/{name}.h"\n\n'
+            f'#include "{config['peripherals']['root']}/{config['address']}"\n'
+            f'#include "{config['peripherals']['root']}/{config['targets']}"\n'
+            f'#include "{config['peripherals']['base']}/{name}.h"\n'
+            f'#include "{config['peripherals']['drivers']}/{name}.h"\n\n'
             f'namespace {namespace}::{name.lower()}\n'
             f'{{\n'
             f'{registers[:-1]}\n'
@@ -316,22 +316,19 @@ def create_peripheral_files(namespace: str, peripherals: list):
             f'}}\n'
         )
 
-        with open(path / f'{name}.h', 'w') as header:
+        path = Path('.').cwd() / f'{config['root']['peripherals']}/{peripheral['name']}.h'
+        with open(path, 'w') as header:
             header.write(text)
-        headers += f'#include "{path.stem}/{name}.h"\n'
+        headers += f'#include "{config['root']['peripherals']}/{name}.h"\n'
 
-    #subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', f'{path}/*.h'])
-
-    with open(path.parent / 'registers.h', 'w') as common:
+    path = Path('.').cwd() / f'{config['final']}'
+    with open(path, 'w') as common:
         common.write(headers)
 
-    subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', path.parent / 'registers.h'])
+    run_clang_format(path)
 
 
-def create_addresses_file(peripherals: list):
-    # Create dir for files
-    path = Path('.').cwd() / 'addresses.h'
-
+def create_addresses_file(peripherals: list, config: dict):
     # Generate storage structs
     structs = ''
     for peripheral in peripherals:
@@ -394,10 +391,11 @@ def create_addresses_file(peripherals: list):
         f'#endif\n'
     )
 
+    path = Path('.').cwd() / f'{config['address']}'
     with open(path, 'w') as header:
         header.write(text)
 
-    subprocess.call(['C:/Program Files/LLVM/bin/clang-format.exe', '--style=file', '-i', path])
+    run_clang_format(path)
 
 
 def get_peripherals(tree: Et.Element, includes: list):
@@ -425,7 +423,7 @@ def get_peripherals(tree: Et.Element, includes: list):
 
         peripherals.append({'group': group, 'derived': [addresses], 'description': description, 'registers': registers})
 
-    temp = list()
+    temp = []
     if includes:
         for include in includes:
             for peripheral in peripherals:
@@ -444,6 +442,10 @@ def get_peripherals(tree: Et.Element, includes: list):
             temp.append({'name': peripheral['group'],'description': peripheral['description'],'derived': derived,'registers': peripheral['registers']})
 
     return temp
+
+
+def get_relative_path(source: Path, target: Path):
+    return str(source.relative_to(target, walk_up=True)).replace('\\', '/')
 
 
 if __name__ == '__main__':
@@ -468,6 +470,13 @@ if __name__ == '__main__':
     common_namespace = 'mcu'
     peripherals = []
 
+    root_path = current.cwd()
+    base_path = root_path / 'Base'
+    common_path = root_path / 'Common'
+    drivers_path = root_path / 'Drivers'
+    peripherals_path = root_path / 'Registers'
+    fields_path = root_path / 'Fields'
+
     if source.suffix == '.svd':
         tree = Et.parse(source.name)
         root = tree.getroot()
@@ -481,11 +490,48 @@ if __name__ == '__main__':
         with open(source, 'r') as file:
             peripherals = json.load(file)
 
+    config = {
+        'base': {
+            'root': get_relative_path(root_path, base_path),
+            'common': get_relative_path(common_path, base_path),
+            'drivers': get_relative_path(drivers_path, base_path) ,
+            'fields': get_relative_path(fields_path, base_path),
+            'peripherals': get_relative_path(peripherals_path, base_path),
+        },
+        'fields': {
+            'root': get_relative_path(root_path, fields_path),
+            'base': get_relative_path(base_path, fields_path),
+            'common': get_relative_path(common_path, fields_path),
+            'drivers': get_relative_path(drivers_path, fields_path),
+            'peripherals': get_relative_path(peripherals_path, fields_path),
+        },
+        'peripherals': {
+            'root': get_relative_path(root_path, peripherals_path),
+            'base': get_relative_path(base_path, peripherals_path),
+            'common': get_relative_path(common_path, peripherals_path),
+            'drivers': get_relative_path(drivers_path, peripherals_path),
+            'fields': get_relative_path(fields_path , peripherals_path),
+        },
+        'root': {
+            'base': get_relative_path(base_path, root_path),
+            'common': get_relative_path(common_path, root_path),
+            'drivers': get_relative_path(drivers_path, root_path),
+            'fields': get_relative_path(fields_path, root_path),
+            'peripherals': get_relative_path(peripherals_path, root_path),
+        },
+        'address': 'addresses.h',
+        'final': 'peripherals.h',
+        'targets': 'targets.h'
+    }
+
     if base:
-        create_base_files(common_namespace, peripherals)
+        create_base_files(common_namespace, peripherals, config)
+
     if fields:
-        create_field_files(common_namespace, peripherals)
+        create_field_files(common_namespace, peripherals, config)
+
     if drivers:
-        create_driver_files(common_namespace, peripherals)
-    create_peripheral_files(common_namespace, peripherals)
-    create_addresses_file(peripherals)
+        create_driver_files(common_namespace, peripherals, config)
+
+    create_peripheral_files(common_namespace, peripherals, config)
+    create_addresses_file(peripherals, config)
