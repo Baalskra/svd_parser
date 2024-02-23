@@ -1,11 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 
-set(peripheral_library_name _peripherals)
+set(library_name _peripherals)
 
-file(GLOB_RECURSE peripheral_sources *.h)
+file(GLOB_RECURSE sources *.h)
 
-#target_sources(${PROJECT_NAME} PUBLIC ${sources})
-
-add_bsp_based_library(NAME ${peripheral_library_name} SOURCES ${peripheral_sources})
-target_include_directories(${peripheral_library_name} PUBLIC .)
-target_compile_options(${peripheral_library_name} PRIVATE -fdata-sections -ffunction-sections -O0)
+add_bsp_based_library(NAME ${library_name} SOURCES ${sources})
+target_include_directories(${library_name} PUBLIC .)
+target_compile_options(${library_name} PRIVATE -O0)
